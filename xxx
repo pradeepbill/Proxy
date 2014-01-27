@@ -1,0 +1,115 @@
+
+/**
+ * Module dependencies.
+ */
+
+var express = require('express');
+var http = require('http');
+var     https = require('https');
+var  nconf=    require('nconf');
+var    log = require('npmlog');
+var    fs = require('fs');
+
+var S=require('string');
+var app = express();
+
+
+var DOMParser = require('xmldom').DOMParser;
+var respXML=' ';
+var respHeaders='';
+var req;
+var errorXml='';
+var id='';
+//nconf.file({ file: '.\\config.json' });
+
+
+//var httpsServer = https.createServer(options, app);
+var httpServer = http.createServer( app);
+
+httpServer.listen(8000);
+//app.listen(9000);
+
+
+
+function rawBody(req, res, next) {
+    req.setEncoding('utf8');
+    req.body = '';
+    req.on('data', function(chunk) {
+        req.body += chunk;
+    });
+    req.on('end', function(){
+        next();
+    });
+}
+app.use(rawBody);
+app.use(app.router);
+
+app.post('/', function(request, response) {
+
+
+    var optionsHTTPSClient = {
+        hostname: 'localhost',
+        port:8088,
+        path:'/MockACAEnrollmentVerificationHttpBinding',
+        method: 'POST'
+        //  cert: fs.readFileSync('viers.cer'),
+        //  agent: false
+    };
+
+
+
+    fs.readFile('errorMsg.xml', function(err, data) {
+        errorXml=data.toString();
+
+    });
+
+    fs.readFile('errorMsg.xml', function(err, data){
+            var doc=new DOMParser().parseFromString(data.toString());
+            var n=doc.getElementsByTagName('ns1:IdentificationID')[0];
+            id=n.childNodes[0].nodeValue;
+        }
+    );
+
+
+    req = http.request(optionsHTTPSClient, function(res) {
+        res.on('data', function (chunk) {
+            respXML=respXML+chunk;
+        });
+        res.on('end', function () {
+            console.log('respXML: '+respXML);
+            response.send(respXML);
+            response.end();
+        });
+    });
+
+    var subStr=  JSON.stringify(request.body).substr(1,JSON.stringify(request.body).length-2);
+    var after= S(subStr).replaceAll('\\"', '"').toString()  ;
+    var final=  S(after).replaceAll('\\n', '').toString()  ;
+
+    // console.log('FINAL: '+final);
+    req.write(final);
+
+
+
+    req.on('error', function (e) {
+        // console.log('-->'+ e.message)
+        if (e.message.toString().indexOf('ECONNREFUSED') > -1 ){
+
+
+            //REQUEST DOC
+            var requestDoc=new DOMParser().parseFromString(final.toString());
+            var n=requestDoc.getElementsByTagName('ns1:IdentificationID')[0];
+            rid=n.childNodes[0].nodeValue;
+            var repNode='<ns1:IdentificationID>'+rid+'</ns1:IdentificationID>';
+
+            //error DOC
+            var replacedErrXML= errorXml.replace("<ns1:IdentificationID>?</ns1:IdentificationID>",repNode);
+            //  console.log(replacedErrXML);
+            response.send(replacedErrXML);
+        }
+    });
+
+    req.end();
+
+});
+
